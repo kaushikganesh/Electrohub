@@ -1,0 +1,115 @@
+================================================================================
+           ELECTROHUB MARKETPLACE - SYSTEM OPERATIONS & POSTGRESQL FLOW
+================================================================================
+
+1. OVERVIEW OF SYSTEM ARCHITECTURE
+--------------------------------------------------------------------------------
+The application is structured into two main layers:
+  • FRONTEND: Built with Next.js & React (App.tsx), using Tailwind CSS for UI
+    and in-memory React state for real-time reactivity.
+  • BACKEND API: Node.js Express server running on port 5005 (/api).
+  • DATABASE: PostgreSQL database managed via Prisma ORM (prisma.user, prisma.order).
+
+No browser `localStorage` is used to persist user data or authentication state. 
+All account data, credentials, and profile management operate directly against 
+the PostgreSQL database.
+
+
+2. POSTGRESQL DATABASE SCHEMA (Prisma ORM)
+--------------------------------------------------------------------------------
+The PostgreSQL database contains the following key tables:
+
+  • User Table:
+    - id          (Int, Primary Key, Auto-increment)
+    - name        (String)
+    - email       (String, Unique Index)
+    - password    (String, Hashed with bcrypt)
+    - role        (Enum: 'ADMIN' | 'USER')
+    - createdAt   (DateTime)
+    - updatedAt   (DateTime)
+
+  • Order Table:
+    - id              (Int, Primary Key)
+    - orderNumber     (String, Unique)
+    - userId          (Int, Foreign Key referencing User.id)
+    - customerName    (String)
+    - customerEmail   (String)
+    - totalAmount     (Float)
+    - status          (String)
+
+  • OrderItem Table:
+    - id              (Int, Primary Key)
+    - orderId         (Int, Foreign Key referencing Order.id, Cascade Delete)
+    - productId       (Int)
+    - quantity        (Int)
+    - price           (Float)
+
+
+3. STEP-BY-STEP USER REGISTRATION FLOW
+--------------------------------------------------------------------------------
+  Step 1: User fills in Name, Email, and Password on the Sign Up page.
+  Step 2: Frontend sends an HTTP POST request to `http://localhost:5005/api/auth/register`.
+  Step 3: Express backend validates inputs and hashes password using bcrypt (10 rounds).
+  Step 4: Express queries PostgreSQL via Prisma:
+          `prisma.user.create({ data: { name, email, password: hashedPassword, role: "USER" } })`
+  Step 5: PostgreSQL stores the new user record and returns the created user object.
+  Step 6: Frontend receives the response, updates in-memory React state (`currentUser`), 
+          and navigates the user to the home page or dashboard.
+
+
+4. STEP-BY-STEP USER LOGIN FLOW
+--------------------------------------------------------------------------------
+  Step 1: User enters Email and Password on the Sign In page.
+  Step 2: Frontend sends HTTP POST request to `http://localhost:5005/api/auth/login`.
+  Step 3: Express backend queries PostgreSQL via Prisma:
+          `prisma.user.findUnique({ where: { email: email.toLowerCase() } })`
+  Step 4: Express compares provided password against hashed password in PostgreSQL using bcrypt.compare().
+  Step 5: If valid, Express returns user details and JWT token.
+  Step 6: Frontend updates React state (`currentUser`) in memory.
+
+
+5. STEP-BY-STEP PROFILE RETRIEVAL FLOW (`/api/auth/me`)
+--------------------------------------------------------------------------------
+  Step 1: Profile component calls HTTP GET `http://localhost:5005/api/auth/me`.
+  Step 2: Backend verifies session token and queries PostgreSQL:
+          `prisma.user.findUnique({ where: { id: payload.id } })`
+  Step 3: PostgreSQL returns current user name, email, and role to display on screen.
+
+
+6. STEP-BY-STEP ACCOUNT & PROFILE DELETION FLOW (DELETE /api/auth/delete-account)
+--------------------------------------------------------------------------------
+  Step 1: User clicks "Delete Profile" or "Delete Account" button in Settings/Profile page.
+  Step 2: Modal dialog prompts for confirmation ("Confirm Deletion").
+  Step 3: Upon confirmation, frontend sends HTTP DELETE request to:
+          `http://localhost:5005/api/auth/delete-account` with `{ email: currentUser.email }`.
+  Step 4: Express backend executes PostgreSQL CASCADE deletion:
+          a) Finds target user in PostgreSQL by ID or Email:
+             `prisma.user.findUnique({ where: { id: userId } })`
+          b) Deletes all orders linked to this user from PostgreSQL:
+             `prisma.order.deleteMany({ where: { OR: [{ userId }, { customerEmail }] } })`
+          c) Deletes user row permanently from PostgreSQL table:
+             `prisma.user.delete({ where: { id: userId } })`
+  Step 5: PostgreSQL permanently removes user profile and associated data.
+  Step 6: Backend returns HTTP 200 OK with success message:
+          `{ success: true, message: "User profile and all associated data permanently deleted from PostgreSQL database." }`
+
+
+7. REDIRECTION & SESSION RESET AFTER DELETION
+--------------------------------------------------------------------------------
+  Step 1: Upon receiving success response from backend, frontend resets React memory state:
+          `setCurrentUser(null)`
+  Step 2: Frontend triggers instant full-page navigation to:
+          `http://localhost:3000/?auth=register`
+  Step 3: App initializes with `authMode = "register"` and renders the Sign Up (Create Account) form.
+
+
+8. WHY THIS ARCHITECTURE IS NOT USING LOCALSTORAGE
+--------------------------------------------------------------------------------
+  • LocalStorage stores key-value strings inside the client's web browser disk cache.
+  • In this application, ZERO user profile or credential data is saved to `localStorage`.
+  • All user records, orders, authentication lookups, and account deletions are executed 
+    directly against the PostgreSQL database server using SQL/Prisma ORM queries.
+
+================================================================================
+                     DOCUMENTATION COMPLETED SUCCESSFULLY
+================================================================================
