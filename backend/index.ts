@@ -27,6 +27,15 @@ app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
 
+// Root endpoint
+app.get("/", (_req: Request, res: Response) => {
+  res.json({
+    status: "ok",
+    message: "ElectroHub Node.js + Express.js API Server is running.",
+    health: "/api/health"
+  });
+});
+
 // Health check endpoint
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", message: "ElectroHub Node.js + Express.js API server running smoothly." });
