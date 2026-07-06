@@ -347,7 +347,10 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    if (!isValidEmail(email)) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = name.trim();
+
+    if (!isValidEmail(cleanEmail)) {
       res.status(400).json({ error: "Please enter a valid email address." });
       return;
     }
@@ -357,7 +360,7 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    if (email.toLowerCase() === "kaushikganesh1512@gmail.com") {
+    if (cleanEmail === "kaushikganesh1512@gmail.com") {
       res.status(400).json({ error: "This email address is reserved for system administration." });
       return;
     }
@@ -365,42 +368,50 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const resetToken = crypto.randomBytes(24).toString("hex");
 
-    let newUser;
-    try {
-      const existing = await prisma.user.findUnique({ where: { email } });
-      if (existing) {
-        res.status(400).json({ error: "An account with this email already exists." });
-        return;
-      }
+    let newUser: any = null;
+    let isExisting = false;
 
-      newUser = await prisma.user.create({
-        data: {
-          name,
-          email,
-          password: hashedPassword,
-          role: "USER",
-        },
-      });
-    } catch {
-      if (mockUsers.some((u) => u.email === email)) {
-        res.status(400).json({ error: "An account with this email already exists." });
-        return;
+    try {
+      const existing = await prisma.user.findUnique({ where: { email: cleanEmail } });
+      if (existing) {
+        isExisting = true;
+      } else {
+        newUser = await prisma.user.create({
+          data: {
+            name: cleanName,
+            email: cleanEmail,
+            password: hashedPassword,
+            role: "USER",
+          },
+        });
       }
-      newUser = {
-        id: mockUsers.length + 1,
-        name,
-        email,
-        passwordHash: hashedPassword,
-        role: "USER" as const,
-      };
-      mockUsers.push(newUser);
+    } catch (dbErr) {
+      console.warn("PostgreSQL user creation note:", dbErr);
+      if (mockUsers.some((u) => u.email.toLowerCase() === cleanEmail)) {
+        isExisting = true;
+      } else {
+        newUser = {
+          id: mockUsers.length + 1,
+          name: cleanName,
+          email: cleanEmail,
+          passwordHash: hashedPassword,
+          role: "USER" as const,
+        };
+        mockUsers.push(newUser);
+      }
     }
 
-    await sendWelcomeAndResetEmail({
+    if (isExisting) {
+      res.status(400).json({ error: "An account with this email already exists." });
+      return;
+    }
+
+    // Trigger Welcome Email asynchronously in background so response is instant
+    sendWelcomeAndResetEmail({
       email: newUser.email,
       name: newUser.name,
       resetToken,
-    });
+    }).catch((emailErr) => console.warn("Background welcome email error:", emailErr));
 
     const token = jwt.sign(
       { id: newUser.id, email: newUser.email, role: newUser.role },
@@ -416,7 +427,7 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
         name: newUser.name,
         email: newUser.email,
         role: newUser.role,
-        avatar: (newUser as any).avatar || null,
+        avatar: newUser.avatar || null,
       },
     });
   } catch (err: any) {
